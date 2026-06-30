@@ -27,7 +27,9 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
-      testflight:
-        submit: false
-        apple_id: $APP_STORE_CONNECT_APPLE_ID
-        password: $APP_SPECIFIC_PASSWORD
+      app_store_connect:
+        auth: api_key
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        submit_to_testflight: false

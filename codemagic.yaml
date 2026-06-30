@@ -17,6 +17,6 @@ workflows:
       - build/ios/ipa/*.ipa
     publishing:
       testflight:
+        app_id: com.ethicallypresent.weatherlybeautiful
         submit: true
-        apple_id: nathanaelvadnais@gmail.com    # ← CHANGE TO YOUR APPLE ID
         password: $APP_SPECIFIC_PASSWORD

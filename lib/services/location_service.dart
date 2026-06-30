@@ -1,39 +1,58 @@
 import 'package:geocoding/geocoding.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
+  Future<LocationPermission> ensureLocationPermission({
+    bool openSettingsIfDeniedForever = false,
+  }) async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await Geolocator.openLocationSettings();
+      }
+      throw const LocationServiceException(
+        'Location services are disabled. Please enable Location Services on your device.',
+      );
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied) {
+      throw const LocationServiceException(
+        'Location access was denied. Allow location access to fetch local weather.',
+      );
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (openSettingsIfDeniedForever) {
+        await Geolocator.openAppSettings();
+      }
+      throw const LocationServiceException(
+        'Location access is permanently denied. Please enable it in iOS Settings > Privacy & Security > Location Services.',
+      );
+    }
+
+    return permission;
+  }
+
   Future<Position> getCurrentPosition() async {
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw const LocationServiceException(
-          'Location services are disabled. Please enable GPS/location services.',
-        );
-      }
-
-      var permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        throw const LocationServiceException(
-          'Location permission denied. Please allow location access.',
-        );
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw const LocationServiceException(
-          'Location permission permanently denied. Please enable it in app settings.',
-        );
-      }
+      await ensureLocationPermission(openSettingsIfDeniedForever: true);
 
       return Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        locationSettings: _locationSettings(),
       );
     } on LocationServiceException {
       rethrow;
+    } on MissingPluginException {
+      throw const LocationServiceException(
+        'Location plugin is not available on this build. Please reinstall the app and try again.',
+      );
     } catch (e) {
       throw LocationServiceException(
         'Unable to get current position: $e',
@@ -79,6 +98,28 @@ class LocationService {
       latitude: position.latitude,
       longitude: position.longitude,
     );
+  }
+
+  LocationSettings _locationSettings() {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return AppleSettings(
+          accuracy: LocationAccuracy.best,
+          activityType: ActivityType.otherNavigation,
+          pauseLocationUpdatesAutomatically: true,
+        );
+      case TargetPlatform.android:
+        return AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0,
+          forceLocationManager: false,
+        );
+      default:
+        return const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        );
+    }
   }
 
   String _resolveBestCity(Placemark place) {

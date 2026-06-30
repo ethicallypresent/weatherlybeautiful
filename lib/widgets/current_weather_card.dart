@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:weather_icons/weather_icons.dart';
 
 import '../models/weather.dart';
 import 'weather_icon_mapper.dart';
@@ -31,11 +30,11 @@ class CurrentWeatherCard extends StatelessWidget {
           padding: EdgeInsets.all(compact ? 16 : 20),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
-            color: scheme.surface.withOpacity(0.16),
-            border: Border.all(color: Colors.white.withOpacity(0.24)),
+            color: scheme.surface.withValues(alpha: 0.16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.14),
+                color: Colors.black.withValues(alpha: 0.14),
                 blurRadius: 24,
                 offset: const Offset(0, 12),
               ),
@@ -46,7 +45,7 @@ class CurrentWeatherCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  BoxedIcon(
+                  Icon(
                     WeatherIconMapper.fromCode(current.weatherCode),
                     color: onSurface,
                     size: compact ? 34 : 42,
@@ -85,17 +84,17 @@ class CurrentWeatherCard extends StatelessWidget {
                 runSpacing: 10,
                 children: [
                   _MetricBadge(
-                    icon: WeatherIcons.thermometer,
+                    icon: Icons.thermostat_rounded,
                     label: 'Feels like',
                     value: '${(feelsLike ?? current.temperature).round()}°',
                   ),
                   _MetricBadge(
-                    icon: WeatherIcons.humidity,
+                    icon: Icons.water_drop_rounded,
                     label: 'Humidity',
                     value: '$humidity%',
                   ),
                   _MetricBadge(
-                    icon: WeatherIcons.strong_wind,
+                    icon: Icons.air_rounded,
                     label: 'Wind',
                     value: '${current.windSpeed.toStringAsFixed(1)} km/h',
                   ),
@@ -128,12 +127,12 @@ class _MetricBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.white.withOpacity(0.14),
+        color: Colors.white.withValues(alpha: 0.14),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          BoxedIcon(icon, size: 14, color: onSurface),
+          Icon(icon, size: 14, color: onSurface),
           const SizedBox(width: 6),
           Text(
             '$label: $value',

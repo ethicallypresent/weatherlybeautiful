@@ -1,35 +1,63 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:weather_icons/weather_icons.dart';
 
 import '../cubits/weather_cubit.dart';
-import '../models/weather.dart';
+import '../repositories/weather_repository.dart';
+import '../widgets/current_weather_card.dart';
+import '../widgets/daily_forecast_card.dart';
+import '../widgets/hourly_forecast_card.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: BlocBuilder<WeatherCubit, WeatherState>(
-        builder: (context, state) {
-          final gradient = _gradientForState(state);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-          return Container(
-            decoration: BoxDecoration(gradient: gradient),
-            child: SafeArea(
-              child: RefreshIndicator(
-                onRefresh: () => _onRefresh(context, state),
-                child: _buildStateView(context, state),
+    return Scaffold(
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: isDark
+            ? SystemUiOverlayStyle.light
+            : const SystemUiOverlayStyle(
+                statusBarBrightness: Brightness.light,
+                statusBarIconBrightness: Brightness.light,
               ),
-            ),
-          );
-        },
+        child: BlocConsumer<WeatherCubit, WeatherState>(
+          listener: (context, state) {
+            if (state is WeatherError && state.previousData != null) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text(state.message),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+            }
+          },
+          builder: (context, state) {
+            final gradient = _gradientForState(state);
+
+            return Container(
+              decoration: BoxDecoration(gradient: gradient),
+              child: SafeArea(
+                child: RefreshIndicator.adaptive(
+                  onRefresh: () => _onRefresh(context, state),
+                  child: _buildStateView(context, state),
+                ),
+              ),
+            );
+          },
+        ),
       ),
       floatingActionButton: _LocationButton(
         onTap: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -45,14 +73,35 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildStateView(BuildContext context, WeatherState state) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    final horizontalPadding = _horizontalPadding(context);
+
+    if (state is WeatherLoading && state.previousData != null) {
+      return _buildWeatherContent(
+        context,
+        state.previousData!,
+        isRefreshing: true,
+      );
+    }
+
+    if (state is WeatherError && state.previousData != null) {
+      return _buildWeatherContent(
+        context,
+        state.previousData!,
+        bannerMessage: state.message,
+      );
+    }
+
     if (state is WeatherLoading || state is WeatherInitial) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(24),
-        children: const [
-          SizedBox(height: 220),
+        padding: EdgeInsets.all(horizontalPadding),
+        children: [
+          const SizedBox(height: 220),
           Center(
-            child: CircularProgressIndicator(),
+            child: isIOS
+                ? const CupertinoActivityIndicator(radius: 16)
+                : const CircularProgressIndicator(),
           ),
         ],
       );
@@ -61,10 +110,14 @@ class HomeScreen extends StatelessWidget {
     if (state is WeatherError) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+        padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 32),
         children: [
           const SizedBox(height: 120),
-          const Icon(Icons.cloud_off_rounded, size: 72, color: Colors.white),
+          Icon(
+            isIOS ? CupertinoIcons.cloud : Icons.cloud_off_rounded,
+            size: 72,
+            color: Colors.white,
+          ),
           const SizedBox(height: 16),
           Text(
             'Could not load weather',
@@ -79,139 +132,195 @@ class HomeScreen extends StatelessWidget {
             state.message,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                 ),
           ),
           const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Try Again'),
-          ),
+          isIOS
+              ? CupertinoButton.filled(
+                  onPressed: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
+                  child: const Text('Try Again'),
+                )
+              : FilledButton.icon(
+                  onPressed: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Try Again'),
+                ),
         ],
       );
     }
 
     final success = state as WeatherSuccess;
-    final data = success.data;
+    return _buildWeatherContent(context, success.data);
+  }
 
-    return CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
-            child: _TopActionBar(
-              city: data.cityName,
-              onSearchTap: () => _showSearchDialog(context),
-              onLocationTap: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
+  Widget _buildWeatherContent(
+    BuildContext context,
+    WeatherRepositoryResult data, {
+    bool isRefreshing = false,
+    String? bannerMessage,
+  }) {
+    final horizontalPadding = _horizontalPadding(context);
+
+    return Stack(
+      children: [
+        CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 10),
+                child: _TopActionBar(
+                  city: data.cityName,
+                  onSearchTap: () => _openSearchScreen(context),
+                  onLocationTap: () => context.read<WeatherCubit>().fetchWeatherByLocation(),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 8),
+                child: CurrentWeatherCard(
+                  current: data.weather.current,
+                  humidity: data.weather.hourly.isNotEmpty ? data.weather.hourly.first.humidity : 0,
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 6),
+                child: Text(
+                  'Next 24 hours',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 150,
+                child: ListView.separated(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 8),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: data.weather.hourly.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final hour = data.weather.hourly[index];
+                    return HourlyForecastCard(forecast: hour);
+                  },
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 18, horizontalPadding, 10),
+                child: Text(
+                  '7-day forecast',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                0,
+                horizontalPadding,
+                MediaQuery.of(context).padding.bottom + 92,
+              ),
+              sliver: SliverList.separated(
+                itemCount: data.weather.daily.length,
+                itemBuilder: (context, index) => DailyForecastCard(
+                  forecast: data.weather.daily[index],
+                ),
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+              ),
+            ),
+          ],
+        ),
+        if (isRefreshing)
+          const Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: CupertinoActivityIndicator(radius: 12),
             ),
           ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: _CurrentWeatherCard(
-              current: data.weather.current,
-              humidity: data.weather.hourly.isNotEmpty ? data.weather.hourly.first.humidity : 0,
-            ),
+        if (bannerMessage != null)
+          Positioned(
+            top: 6,
+            left: horizontalPadding,
+            right: horizontalPadding,
+            child: _InlineBanner(message: bannerMessage),
           ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-            child: Text(
-              'Next 24 hours',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 150,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              scrollDirection: Axis.horizontal,
-              itemCount: data.weather.hourly.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final hour = data.weather.hourly[index];
-                return _HourlyItem(forecast: hour);
-              },
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-            child: Text(
-              '7-day forecast',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-          sliver: SliverList.separated(
-            itemCount: data.weather.daily.length,
-            itemBuilder: (context, index) => _DailyItem(
-              forecast: data.weather.daily[index],
-            ),
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-          ),
-        ),
       ],
     );
   }
+}
 
-  Future<void> _showSearchDialog(BuildContext context) async {
-    final controller = TextEditingController();
+class _InlineBanner extends StatelessWidget {
+  const _InlineBanner({required this.message});
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Search City'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            textInputAction: TextInputAction.search,
-            decoration: const InputDecoration(
-              hintText: 'Enter city name',
-            ),
-            onSubmitted: (_) {
-              Navigator.of(context).pop();
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text('Search'),
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.30),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
+  }
+}
 
-    final city = controller.text.trim();
-    if (city.isNotEmpty && context.mounted) {
-      context.read<WeatherCubit>().fetchWeatherByCity(city);
-    }
+double _horizontalPadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width <= 390) return 14;
+    if (width <= 430) return 16;
+    return 20;
+
+}
+
+Future<void> _openSearchScreen(BuildContext context) async {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+
+    await Navigator.of(context).push<void>(
+      isIOS
+          ? CupertinoPageRoute<void>(
+              builder: (_) => const SearchScreen(),
+            )
+          : MaterialPageRoute<void>(
+              builder: (_) => const SearchScreen(),
+            ),
+    );
   }
 
-  LinearGradient _gradientForState(WeatherState state) {
+LinearGradient _gradientForState(WeatherState state) {
     if (state is! WeatherSuccess) {
       return const LinearGradient(
         begin: Alignment.topLeft,
@@ -275,7 +384,6 @@ class HomeScreen extends StatelessWidget {
       end: Alignment.bottomRight,
       colors: [Color(0xFF2C3E50), Color(0xFF4CA1AF)],
     );
-  }
 }
 
 class _TopActionBar extends StatelessWidget {
@@ -291,6 +399,8 @@ class _TopActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+
     return Row(
       children: [
         Expanded(
@@ -310,232 +420,37 @@ class _TopActionBar extends StatelessWidget {
               Text(
                 DateFormat('EEEE, d MMM').format(DateTime.now()),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                     ),
               ),
             ],
           ),
         ),
-        IconButton.filledTonal(
-          onPressed: onSearchTap,
-          icon: const Icon(Icons.search_rounded),
-          color: Colors.white,
-        ),
+        isIOS
+            ? CupertinoButton(
+                onPressed: onSearchTap,
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.all(8),
+                child: const Icon(CupertinoIcons.search, color: Colors.white),
+              )
+            : IconButton.filledTonal(
+                onPressed: onSearchTap,
+                icon: const Icon(Icons.search_rounded),
+                color: Colors.white,
+              ),
         const SizedBox(width: 8),
-        IconButton.filledTonal(
-          onPressed: onLocationTap,
-          icon: const Icon(Icons.my_location_rounded),
-          color: Colors.white,
-        ),
-      ],
-    );
-  }
-}
-
-class _CurrentWeatherCard extends StatelessWidget {
-  const _CurrentWeatherCard({
-    required this.current,
-    required this.humidity,
-  });
-
-  final CurrentWeather current;
-  final int humidity;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: Colors.white.withOpacity(0.16),
-        border: Border.all(color: Colors.white.withOpacity(0.24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              BoxedIcon(
-                _iconForCode(current.weatherCode),
-                size: 50,
+        isIOS
+            ? CupertinoButton(
+                onPressed: onLocationTap,
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.all(8),
+                child: const Icon(CupertinoIcons.location_solid, color: Colors.white),
+              )
+            : IconButton.filledTonal(
+                onPressed: onLocationTap,
+                icon: const Icon(Icons.my_location_rounded),
                 color: Colors.white,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  current.weatherDescription,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            '${current.temperature.round()}°',
-            style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  height: 1,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 16,
-            runSpacing: 10,
-            children: [
-              _MetricChip(
-                icon: WeatherIcons.thermometer,
-                label: 'Feels like',
-                value: '${current.temperature.round()}°',
-              ),
-              _MetricChip(
-                icon: WeatherIcons.humidity,
-                label: 'Humidity',
-                value: '$humidity%',
-              ),
-              _MetricChip(
-                icon: WeatherIcons.strong_wind,
-                label: 'Wind',
-                value: '${current.windSpeed.toStringAsFixed(1)} km/h',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HourlyItem extends StatelessWidget {
-  const _HourlyItem({required this.forecast});
-
-  final HourlyForecast forecast;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 82,
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(0.16),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            DateFormat('HH:mm').format(forecast.time),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          BoxedIcon(
-            _iconForCode(forecast.weatherCode),
-            color: Colors.white,
-            size: 28,
-          ),
-          Text(
-            '${forecast.temperature.round()}°',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DailyItem extends StatelessWidget {
-  const _DailyItem({required this.forecast});
-
-  final DailyForecast forecast;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: Colors.white.withOpacity(0.14),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(
-              DateFormat('EEE, d MMM').format(forecast.date),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          BoxedIcon(
-            _iconForCode(forecast.weatherCode),
-            color: Colors.white,
-            size: 24,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              forecast.weatherDescription,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withOpacity(0.95),
-                  ),
-            ),
-          ),
-          Text(
-            '${forecast.maxTemperature.round()}° / ${forecast.minTemperature.round()}°',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        BoxedIcon(icon, size: 16, color: Colors.white),
-        const SizedBox(width: 6),
-        Text(
-          '$label: $value',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
       ],
     );
   }
@@ -548,24 +463,31 @@ class _LocationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+
+    if (isIOS) {
+      return CupertinoButton(
+        onPressed: onTap,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(18),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(CupertinoIcons.location_fill, color: Colors.white),
+            SizedBox(width: 8),
+            Text('My Location', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      );
+    }
+
     return FloatingActionButton.extended(
       onPressed: onTap,
-      backgroundColor: Colors.white.withOpacity(0.20),
+      backgroundColor: Colors.white.withValues(alpha: 0.20),
       foregroundColor: Colors.white,
       icon: const Icon(Icons.my_location_rounded),
       label: const Text('My Location'),
     );
   }
-}
-
-IconData _iconForCode(int code) {
-  if (code == 0) return WeatherIcons.day_sunny;
-  if (code == 1 || code == 2) return WeatherIcons.day_cloudy;
-  if (code == 3) return WeatherIcons.cloudy;
-  if (code == 45 || code == 48) return WeatherIcons.fog;
-  if ([51, 53, 55, 56, 57].contains(code)) return WeatherIcons.sprinkle;
-  if ([61, 63, 65, 66, 67, 80, 81, 82].contains(code)) return WeatherIcons.rain;
-  if ([71, 73, 75, 77, 85, 86].contains(code)) return WeatherIcons.snow;
-  if ([95, 96, 99].contains(code)) return WeatherIcons.thunderstorm;
-  return WeatherIcons.na;
 }

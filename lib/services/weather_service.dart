@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
@@ -30,11 +31,13 @@ class WeatherService {
     );
 
     try {
-      final response = await _client.get(uri);
+      final response = await _client
+          .get(uri)
+          .timeout(const Duration(seconds: 12));
 
       if (response.statusCode != 200) {
         throw WeatherServiceException(
-          'Failed to fetch weather data: HTTP ${response.statusCode}',
+          'Weather service is temporarily unavailable (HTTP ${response.statusCode}).',
         );
       }
 
@@ -54,6 +57,12 @@ class WeatherService {
       final hourly = HourlyForecast.listFromApi(decoded).take(24).toList();
       final daily = DailyForecast.listFromApi(decoded).take(7).toList();
 
+      if (hourly.isEmpty || daily.isEmpty) {
+        throw const WeatherServiceException(
+          'Weather response is incomplete. Please try again shortly.',
+        );
+      }
+
       return WeatherResult(
         current: current,
         hourly: hourly,
@@ -61,6 +70,10 @@ class WeatherService {
       );
     } on FormatException {
       throw const WeatherServiceException('Failed to parse weather data.');
+    } on TimeoutException {
+      throw const WeatherServiceException(
+        'Request timed out. Check your connection and try again.',
+      );
     } on http.ClientException catch (e) {
       throw WeatherServiceException('Network error while fetching weather: $e');
     } catch (e) {

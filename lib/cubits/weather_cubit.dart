@@ -3,7 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../repositories/weather_repository.dart';
 
 abstract class WeatherState {
-  const WeatherState();
+  const WeatherState({this.previousData});
+
+  final WeatherRepositoryResult? previousData;
 }
 
 class WeatherInitial extends WeatherState {
@@ -11,19 +13,28 @@ class WeatherInitial extends WeatherState {
 }
 
 class WeatherLoading extends WeatherState {
-  const WeatherLoading();
+  const WeatherLoading({super.previousData, this.message});
+
+  final String? message;
+
+  bool get isRefreshing => previousData != null;
 }
 
 class WeatherSuccess extends WeatherState {
-  const WeatherSuccess(this.data);
+  const WeatherSuccess(this.data) : super(previousData: data);
 
   final WeatherRepositoryResult data;
 }
 
 class WeatherError extends WeatherState {
-  const WeatherError(this.message);
+  const WeatherError(
+    this.message, {
+    super.previousData,
+    this.canRetry = true,
+  });
 
   final String message;
+  final bool canRetry;
 }
 
 class WeatherCubit extends Cubit<WeatherState> {
@@ -32,32 +43,62 @@ class WeatherCubit extends Cubit<WeatherState> {
         super(const WeatherInitial());
 
   final WeatherRepository _repository;
+  WeatherRepositoryResult? _lastSuccessData;
+  bool _isFetching = false;
 
   Future<void> fetchWeatherByLocation() async {
-    emit(const WeatherLoading());
+    if (_isFetching) return;
+    _isFetching = true;
+
+    emit(WeatherLoading(
+      previousData: _lastSuccessData,
+      message: _lastSuccessData == null ? 'Fetching your location...' : 'Refreshing weather...',
+    ));
 
     try {
       final result = await _repository.getWeatherByCurrentLocation();
+      _lastSuccessData = result;
       emit(WeatherSuccess(result));
     } catch (e) {
-      emit(WeatherError(_messageFromError(e)));
+      emit(WeatherError(
+        _messageFromError(e),
+        previousData: _lastSuccessData,
+      ));
+    } finally {
+      _isFetching = false;
     }
   }
 
   Future<void> fetchWeatherByCity(String city) async {
     final query = city.trim();
     if (query.isEmpty) {
-      emit(const WeatherError('Please enter a city name.'));
+      emit(WeatherError(
+        'Please enter a city name.',
+        previousData: _lastSuccessData,
+        canRetry: false,
+      ));
       return;
     }
 
-    emit(const WeatherLoading());
+    if (_isFetching) return;
+    _isFetching = true;
+
+    emit(WeatherLoading(
+      previousData: _lastSuccessData,
+      message: 'Searching $query...',
+    ));
 
     try {
       final result = await _repository.getWeatherByCity(query);
+      _lastSuccessData = result;
       emit(WeatherSuccess(result));
     } catch (e) {
-      emit(WeatherError(_messageFromError(e)));
+      emit(WeatherError(
+        _messageFromError(e),
+        previousData: _lastSuccessData,
+      ));
+    } finally {
+      _isFetching = false;
     }
   }
 

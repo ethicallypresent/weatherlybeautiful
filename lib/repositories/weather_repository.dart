@@ -32,9 +32,17 @@ class WeatherRepository {
         longitude: position.longitude,
         weather: weather,
       );
+    } on LocationServiceException catch (e) {
+      throw WeatherRepositoryException(e.message);
+    } on WeatherServiceException catch (e) {
+      throw WeatherRepositoryException(e.message);
+    } on NoResultFoundException {
+      throw const WeatherRepositoryException(
+        'Could not determine your city from current location.',
+      );
     } catch (e) {
-      throw WeatherRepositoryException(
-        'Failed to load weather for current location: $e',
+      throw const WeatherRepositoryException(
+        'Unable to load weather for your current location.',
       );
     }
   }
@@ -44,7 +52,7 @@ class WeatherRepository {
       final locations = await locationFromAddress(city);
       if (locations.isEmpty) {
         throw const WeatherRepositoryException(
-          'No coordinates found for the provided city name.',
+          'City not found. Please check spelling and try again.',
         );
       }
 
@@ -60,10 +68,16 @@ class WeatherRepository {
         longitude: location.longitude,
         weather: weather,
       );
+    } on NoResultFoundException {
+      throw const WeatherRepositoryException(
+        'City not found. Please try another city name.',
+      );
+    } on WeatherServiceException catch (e) {
+      throw WeatherRepositoryException(e.message);
     } catch (e) {
       if (e is WeatherRepositoryException) rethrow;
       throw WeatherRepositoryException(
-        'Failed to load weather for city "$city": $e',
+        'Unable to load weather for "$city" right now.',
       );
     }
   }
@@ -88,9 +102,13 @@ class WeatherRepository {
         longitude: longitude,
         weather: weather,
       );
+    } on LocationServiceException catch (e) {
+      throw WeatherRepositoryException(e.message);
+    } on WeatherServiceException catch (e) {
+      throw WeatherRepositoryException(e.message);
     } catch (e) {
-      throw WeatherRepositoryException(
-        'Failed to load weather for coordinates ($latitude, $longitude): $e',
+      throw const WeatherRepositoryException(
+        'Unable to load weather for this location.',
       );
     }
   }

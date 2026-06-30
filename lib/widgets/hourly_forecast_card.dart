@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:weather_icons/weather_icons.dart';
 
 import '../models/weather.dart';
 import 'weather_icon_mapper.dart';
@@ -30,8 +29,8 @@ class HourlyForecastCard extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: scheme.surface.withOpacity(0.16),
-            border: Border.all(color: Colors.white.withOpacity(0.20)),
+            color: scheme.surface.withValues(alpha: 0.16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -43,7 +42,7 @@ class HourlyForecastCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
               ),
-              BoxedIcon(
+              Icon(
                 WeatherIconMapper.fromCode(forecast.weatherCode),
                 color: onSurface,
                 size: compact ? 22 : 26,

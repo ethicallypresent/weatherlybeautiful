@@ -7,20 +7,16 @@ workflows:
       flutter: stable
       xcode: latest
       vars:
-        APP_BUNDLE_ID: "com.ethicallypresent.weatherapp"
+        APP_BUNDLE_ID: "com.ethicallypresent.weatherlybeautiful"
     scripts:
-      - name: Clean iOS Build Artifacts
-        script: |
-          flutter clean
-          rm -rf ios/Pods ios/Podfile.lock
-      - name: Verify Runner Workspace and Scheme
-        script: |
-          test -f ios/Runner.xcworkspace/contents.xcworkspacedata
-          xcodebuild -workspace ios/Runner.xcworkspace -list | grep -q "Runner"
-      - name: Build iOS
-        script: |
-          flutter pub get
-          flutter build ipa --release --no-codesign
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build IPA
+        script: flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
+    publishing:
+      testflight:
+        submit: true
+        apple_id: nathanaelvadnais@gmail.com    # ← CHANGE TO YOUR APPLE ID
+        password: $APP_SPECIFIC_PASSWORD

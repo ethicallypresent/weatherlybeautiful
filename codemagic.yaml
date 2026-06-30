@@ -20,9 +20,7 @@ workflows:
       - name: Build iOS
         script: |
           flutter pub get
-          cd ios
-          pod install --repo-update
-          cd ..
-          flutter build ipa --release
+          flutter build ipa --release --no-codesign
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
